@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gideon</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        :root { --bg:#212121; --side:#181818; --surface:#303030; --line:rgba(255,255,255,.08); --text:#ececec; --muted:#9b9b9b; --ease:cubic-bezier(.2,.8,.2,1); }
+        * { box-sizing:border-box; margin:0; padding:0; font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+        body { display:flex; height:100vh; height:100dvh; background:var(--bg); color:var(--text); overflow:hidden; -webkit-font-smoothing:antialiased; }
+        ::-webkit-scrollbar { width:8px; height:8px; }
+        ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:8px; }
+        ::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,.22); }
+
+        /* Sidebar */
+        #sidebar { width:260px; background:var(--side); padding:12px; display:flex; flex-direction:column; flex-shrink:0; gap:4px; }
+        #new-chat { background:transparent; color:var(--text); border:none; padding:10px 12px; border-radius:10px; cursor:pointer; font-size:14px; text-align:left; display:flex; align-items:center; gap:10px; transition:background .15s; }
+        #new-chat:hover { background:rgba(255,255,255,.07); }
+        #new-chat svg { width:18px; height:18px; flex-shrink:0; }
+        .model-chip { margin-top:auto; padding:10px 12px; font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:8px; }
+        .model-chip i { width:8px; height:8px; border-radius:50%; background:#0A84FF; box-shadow:0 0 8px #0A84FFaa; }
+
+        /* Main */
+        #main { flex:1; display:flex; flex-direction:column; height:100%; position:relative; min-width:0; }
+        #chat-container { flex:1; overflow-y:auto; padding:32px 16px 12px; display:flex; flex-direction:column; gap:28px; scroll-behavior:smooth; }
+
+        #welcome { position:absolute; inset:0 0 120px 0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px; pointer-events:none; animation:fadeUp .6s var(--ease); }
+        #welcome h1 { font-size:30px; font-weight:600; letter-spacing:-.02em; text-align:center; padding:0 16px; }
+        .chips { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; max-width:640px; padding:0 16px; pointer-events:auto; }
+        .chip { background:transparent; color:var(--text); border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:9px 16px; font-size:13.5px; cursor:pointer; transition:background .15s, transform .15s; }
+        .chip:hover { background:rgba(255,255,255,.07); transform:translateY(-1px); }
+
+        /* Messaggi */
+        .message-row { display:flex; justify-content:center; width:100%; animation:fadeUp .35s var(--ease); }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+        .message { display:flex; flex-direction:column; max-width:768px; width:100%; gap:6px; }
+        .message.user { align-items:flex-end; }
+        .message.user .content { background:var(--surface); border-radius:22px; padding:10px 18px; max-width:80%; display:inline-block; line-height:1.55; font-size:15px; white-space:pre-wrap; word-break:break-word; }
+        .message.assistant { align-items:flex-start; }
+        .message.assistant .content { width:100%; line-height:1.75; font-size:15px; }
+        .content p { margin:0 0 12px; } .content p:last-child { margin-bottom:0; }
+        .content ul, .content ol { margin:0 0 12px 22px; } .content li { margin:4px 0; }
+        .content h1, .content h2, .content h3 { margin:18px 0 8px; font-weight:600; line-height:1.3; }
+        .content a { color:#7ab7ff; }
+        .content :not(pre) > code { background:rgba(255,255,255,.1); padding:2px 6px; border-radius:6px; font-size:13px; }
+
+        /* Pallino pulsante durante lo streaming */
+        .content.streaming::after { content:''; display:inline-block; width:10px; height:10px; margin-top:6px; border-radius:50%; background:#fff; animation:pulse 1s ease-in-out infinite; }
+        @keyframes pulse { 0%,100% { transform:scale(.7); opacity:.5; } 50% { transform:scale(1.1); opacity:1; } }
+
+        /* Etichetta ragionamento */
+        .thought-status { font-size:14px; color:var(--muted); user-select:none; display:inline-flex; align-items:center; gap:4px; margin-bottom:2px; }
+        .thought-status:not(.clickable) { background:linear-gradient(90deg,#6b6b6b 0%,#6b6b6b 35%,#fff 50%,#6b6b6b 65%,#6b6b6b 100%); background-size:250% 100%; -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; animation:shimmer 2s linear infinite; }
+        @keyframes shimmer { from { background-position:100% 0; } to { background-position:-100% 0; } }
+        .thought-status.clickable { cursor:pointer; padding:2px 8px 2px 0; border-radius:8px; transition:color .2s; }
+        .thought-status.clickable::after { content:'›'; font-size:17px; transition:transform .2s; }
+        .thought-status.clickable:hover { color:#fff; }
+        .thought-status.clickable:hover::after { transform:translateX(3px); }
+        .dots::after { content:''; display:inline-block; width:14px; text-align:left; animation:ellipsis 1.5s infinite; }
+        @keyframes ellipsis { 0% { content:''; } 25% { content:'.'; } 50% { content:'..'; } 75% { content:'...'; } }
+
+        /* Drawer ragionamento */
+        #reasoning-drawer { position:fixed; top:0; right:0; width:420px; max-width:92vw; height:100%; background:#1b1b1b; border-left:1px solid var(--line); box-shadow:-8px 0 32px rgba(0,0,0,.45); transform:translateX(105%); transition:transform .35s var(--ease); z-index:100; display:flex; flex-direction:column; }
+        #reasoning-drawer.open { transform:none; }
+        .drawer-header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:15px; }
+        .drawer-close { background:transparent; border:none; color:var(--muted); font-size:16px; cursor:pointer; width:32px; height:32px; border-radius:50%; transition:background .15s, color .15s; }
+        .drawer-close:hover { background:rgba(255,255,255,.1); color:#fff; }
+        .drawer-body { padding:20px; overflow-y:auto; flex:1; font-size:14px; color:#b4b4b4; line-height:1.7; }
+
+        pre { background:#0f0f10; padding:14px 16px; border-radius:12px; overflow-x:auto; margin:12px 0; border:1px solid var(--line); }
+        code { font-family:"JetBrains Mono",Monaco,Consolas,monospace; font-size:13px; }
+
+        /* Composer */
+        #input-container { padding:8px 16px 14px; width:100%; display:flex; flex-direction:column; align-items:center; gap:10px; background:linear-gradient(transparent,var(--bg) 30%); }
+        #input-wrapper { max-width:768px; width:100%; background:var(--surface); border-radius:28px; padding:10px 10px 10px 22px; display:flex; align-items:flex-end; gap:10px; box-shadow:0 2px 12px rgba(0,0,0,.25); border:1px solid transparent; transition:border-color .2s, box-shadow .2s; }
+        #input-wrapper:focus-within { border-color:rgba(255,255,255,.14); box-shadow:0 4px 24px rgba(0,0,0,.35); }
+        textarea { flex:1; background:transparent; border:none; color:var(--text); resize:none; height:24px; max-height:200px; outline:none; font-size:15px; line-height:24px; margin:6px 0; }
+        textarea::placeholder { color:#8e8e8e; }
+        button#send { background:#fff; color:#000; border:none; border-radius:50%; width:36px; height:36px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:transform .15s, opacity .2s, background .2s; }
+        button#send svg { width:18px; height:18px; }
+        button#send:hover:not(:disabled) { transform:scale(1.08); }
+        button#send:active:not(:disabled) { transform:scale(.94); }
+        button#send.empty { opacity:.35; }
+        button#send:disabled { background:#555; color:#999; cursor:not-allowed; opacity:1; }
+        .hint { font-size:12px; color:#7d7d7d; }
+
+    
+        /* ===== Accento azzurro Apple ===== */
+        :root { --accent:#0A84FF; --accent-soft:#64D2FF; }
+        ::selection { background:rgba(10,132,255,.4); }
+        textarea { caret-color:var(--accent); }
+        ::-webkit-scrollbar-thumb:hover { background:rgba(10,132,255,.55); }
+        .content a { color:var(--accent-soft); text-decoration-color:rgba(100,210,255,.4); text-underline-offset:3px; }
+        .content a:hover { text-decoration-color:var(--accent-soft); }
+        .content li::marker { color:var(--accent); }
+        .content blockquote { border-left:3px solid var(--accent); padding:2px 14px; margin:0 0 12px; color:#bdbdbd; }
+        .content :not(pre) > code { color:var(--accent-soft); background:rgba(10,132,255,.14); }
+        pre { border-left:3px solid var(--accent); }
+        .content.streaming::after { background:var(--accent); box-shadow:0 0 10px rgba(10,132,255,.7); }
+        .thought-status:not(.clickable) { background-image:linear-gradient(90deg,#6b6b6b 0%,#6b6b6b 35%,var(--accent-soft) 50%,#6b6b6b 65%,#6b6b6b 100%); background-size:250% 100%; -webkit-background-clip:text; background-clip:text; }
+        .thought-status.clickable:hover { color:var(--accent-soft); }
+        #new-chat svg { color:var(--accent); }
+        #new-chat:hover { background:rgba(10,132,255,.12); }
+        .chip:hover { border-color:var(--accent); background:rgba(10,132,255,.12); }
+        #welcome::before { content:''; position:absolute; width:520px; height:320px; max-width:90vw; top:50%; left:50%; transform:translate(-50%,-70%); background:radial-gradient(closest-side,rgba(10,132,255,.16),transparent); filter:blur(20px); z-index:-1; }
+        #welcome h1 { background:linear-gradient(180deg,#fff 40%,var(--accent-soft)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+        #input-wrapper:focus-within { border-color:rgba(10,132,255,.6); box-shadow:0 0 0 4px rgba(10,132,255,.14), 0 4px 24px rgba(0,0,0,.35); }
+        button#send { background:var(--accent); color:#fff; box-shadow:0 2px 10px rgba(10,132,255,.45); }
+        button#send:disabled { background:#555; box-shadow:none; }
+        #reasoning-drawer { border-left:1px solid rgba(10,132,255,.35); }
+        .drawer-header { color:var(--accent-soft); }
+        .drawer-close:hover { background:rgba(10,132,255,.2); color:#fff; }
+        .message.user .content { border:1px solid rgba(10,132,255,.25); }
+    
+        /* Freccia di invio sempre ben visibile */
+        button#send, button#send.empty, button#send:disabled { color:#fff; opacity:1; }
+        button#send.empty { background:rgba(10,132,255,.5); box-shadow:none; }
+        button#send:disabled { background:#48484a; }
+        button#send svg { width:20px; height:20px; stroke:#fff; stroke-width:3; }
+
+        /* ===== Cronologia chat ===== */
+        .chat-list-label { font-size:12px; color:var(--muted); padding:14px 12px 6px; font-weight:500; }
+        #chat-list { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:2px; min-height:0; }
+        .chat-item { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:9px 10px 9px 12px; border-radius:10px; cursor:pointer; font-size:14px; color:#d6d6d6; transition:background .15s; animation:fadeUp .25s var(--ease); }
+        .chat-item span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .chat-item:hover { background:rgba(255,255,255,.07); }
+        .chat-item.active { background:rgba(10,132,255,.16); color:#fff; }
+        .chat-item .del { opacity:0; background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:13px; width:24px; height:24px; border-radius:6px; flex-shrink:0; transition:opacity .15s, background .15s, color .15s; }
+        .chat-item:hover .del, .chat-item.active .del { opacity:1; }
+        .chat-item .del:hover { background:rgba(255,69,58,.2); color:#ff6961; }
+        .chat-empty { font-size:13px; color:#6f6f6f; padding:6px 12px; }
+
+        /* ===== Mobile: sidebar a scomparsa ===== */
+        #menu-btn, #sidebar-overlay { display:none; }
+        @media (max-width:768px) {
+            #sidebar { position:fixed; top:0; left:0; bottom:0; width:290px; max-width:85vw; z-index:90; transform:translateX(-100%); transition:transform .3s var(--ease); box-shadow:8px 0 32px rgba(0,0,0,.5); }
+            #sidebar.open { transform:none; }
+            #sidebar-overlay { display:block; position:fixed; inset:0; background:rgba(0,0,0,.55); opacity:0; pointer-events:none; transition:opacity .3s; z-index:80; }
+            #sidebar-overlay.open { opacity:1; pointer-events:auto; }
+            #menu-btn { display:flex; position:absolute; top:10px; left:10px; z-index:20; width:42px; height:42px; align-items:center; justify-content:center; background:rgba(48,48,48,.85); backdrop-filter:blur(8px); border:none; color:var(--text); border-radius:12px; cursor:pointer; }
+            #menu-btn svg { width:20px; height:20px; }
+            #chat-container { padding-top:64px; }
+            #welcome h1 { font-size:24px; }
+            .chat-item { padding:13px 12px; }
+        }
+        /* Su touch non esiste l'hover: la ✕ resta sempre visibile */
+        @media (hover:none) { .chat-item .del { opacity:1; } }
+
+        /* ===== Allegati immagine ===== */
+        #attach-btn { background:transparent; border:none; color:var(--muted); width:36px; height:36px; border-radius:50%; cursor:pointer; display:none; align-items:center; justify-content:center; flex-shrink:0; margin-left:-10px; transition:background .15s, color .15s; }
+        #attach-btn:hover { background:rgba(10,132,255,.15); color:var(--accent-soft); }
+        #attach-btn svg { width:20px; height:20px; }
+        #attach-strip { max-width:768px; width:100%; display:none; flex-wrap:wrap; gap:8px; padding:0 6px; }
+        #attach-strip.has { display:flex; }
+        .att { position:relative; width:64px; height:64px; border-radius:12px; overflow:hidden; border:1px solid rgba(10,132,255,.35); background:#111; }
+        .att img { width:100%; height:100%; object-fit:cover; display:block; }
+        .att.loading img { opacity:.35; }
+        .att.loading::after { content:''; position:absolute; inset:0; margin:auto; width:18px; height:18px; border-radius:50%; border:2px solid rgba(255,255,255,.25); border-top-color:var(--accent-soft); animation:spin .8s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        .att button { position:absolute; top:3px; right:3px; width:20px; height:20px; border:none; border-radius:50%; background:rgba(0,0,0,.65); color:#fff; font-size:11px; cursor:pointer; line-height:20px; padding:0; }
+        .att button:hover { background:#ff453a; }
+        .msg-images { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; max-width:80%; }
+        .msg-images img { max-width:220px; max-height:220px; border-radius:16px; display:block; border:1px solid rgba(10,132,255,.25); object-fit:cover; }
+        #main.dragging::after { content:"Rilascia qui il file"; position:absolute; inset:12px; z-index:30; display:flex; align-items:center; justify-content:center; border:2px dashed var(--accent); border-radius:20px; background:rgba(10,132,255,.12); font-size:18px; color:#fff; pointer-events:none; }
+        /* ===== Allegati PDF ===== */
+        .att.doc { width:auto; max-width:230px; height:44px; display:flex; align-items:center; gap:8px; padding:0 30px 0 10px; font-size:12.5px; color:#e8e8e8; }
+        .att.doc svg { width:18px; height:18px; flex-shrink:0; color:var(--accent-soft); }
+        .att.doc .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .att.doc.loading .nm { opacity:.4; }
+        .msg-docs { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; max-width:80%; }
+        .doc-chip { display:inline-flex; align-items:center; gap:8px; max-width:280px; padding:8px 12px; border-radius:14px; border:1px solid rgba(10,132,255,.25); background:rgba(10,132,255,.08); color:inherit; text-decoration:none; font-size:13px; }
+        .doc-chip:hover { background:rgba(10,132,255,.16); }
+        .doc-chip svg { width:18px; height:18px; flex-shrink:0; color:var(--accent-soft); }
+        .doc-chip .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .doc-chip small { opacity:.6; flex-shrink:0; }
+
+        /* ===== Blocchi di codice con barra e pulsante Copia ===== */
+        #chat-container { scroll-behavior:auto; }   /* niente scorrimento "morbido": durante lo streaming restava indietro */
+        .codeblock { margin:14px 0; border-radius:12px; overflow:hidden; border:1px solid var(--line); border-left:3px solid var(--accent); background:#1a1b26; }
+        .cb-head { display:flex; align-items:center; justify-content:space-between; padding:5px 8px 5px 14px; background:rgba(255,255,255,.06); border-bottom:1px solid var(--line); font-size:12px; color:var(--muted); user-select:none; }
+        .code-copy { display:inline-flex; align-items:center; gap:6px; background:transparent; border:none; color:var(--muted); font-size:12px; padding:5px 8px; border-radius:7px; cursor:pointer; transition:background .15s, color .15s; }
+        .code-copy svg { width:15px; height:15px; }
+        .code-copy:hover { background:rgba(255,255,255,.1); color:#fff; }
+        .code-copy.done { color:var(--accent-soft); }
+        .code-download { display:inline-flex; align-items:center; gap:6px; background:transparent; border:none; color:var(--muted); font-size:12px; padding:5px 8px; border-radius:7px; cursor:pointer; transition:background .15s, color .15s; }
+        .code-download svg { width:15px; height:15px; }
+        .code-download:hover { background:rgba(255,255,255,.1); color:#fff; }
+        .code-download:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+        .codeblock pre { margin:0; padding:0; border:none; border-radius:0; background:transparent; }
+        .codeblock pre code { display:block; padding:14px 16px; background:transparent; overflow-x:auto; }
+        /* Schede file e anteprima */
+        #file-drawer { display:flex; flex:0 0 0; min-width:0; height:100%; flex-direction:column; overflow:hidden; visibility:hidden; opacity:0; pointer-events:none; background:#1b1b1b; border-left:0 solid rgba(10,132,255,.35); transition:flex-basis .35s var(--ease),opacity .2s ease,border-left-width .35s var(--ease),visibility 0s linear .35s; }
+        #file-drawer.open { flex-basis:min(50vw,900px); visibility:visible; opacity:1; pointer-events:auto; border-left-width:1px; transition-delay:0s; }
+        .file-drawer-head { min-height:54px; padding:8px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); }
+        .file-drawer-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; font-weight:600; }
+        .file-drawer-controls { display:flex; align-items:center; gap:4px; flex-shrink:0; }
+        .file-drawer-controls .code-copy,.file-drawer-controls .code-download { color:var(--text); }
+        .file-drawer-body { flex:1; min-height:0; overflow:auto; }
+        .file-drawer-body pre { min-height:100%; margin:0; padding:16px; border:0; border-radius:0; background:#171717; }
+        .file-drawer-body code { display:block; white-space:pre; }
+        .file-card { display:flex; align-items:center; gap:8px; width:100%; margin:14px 0; overflow:hidden; border:1px solid var(--line); border-radius:14px; background:#242424; }
+        .file-card-open { display:flex; align-items:center; gap:12px; flex:1; min-width:0; padding:14px 16px; border:0; background:transparent; color:var(--text); text-align:left; cursor:pointer; }
+        .file-card-open:hover { background:rgba(255,255,255,.045); }
+        .file-card-open:disabled { cursor:default; }
+        .file-card-icon { display:flex; align-items:center; justify-content:center; width:38px; height:38px; flex-shrink:0; border-radius:10px; color:var(--accent-soft); background:rgba(10,132,255,.13); }
+        .file-card-icon svg { width:20px; height:20px; }
+        .file-card-meta { display:flex; flex-direction:column; min-width:0; gap:3px; }
+        .file-card-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; font-weight:550; }
+        .file-card-subtitle { color:var(--muted); font-size:12px; }
+        .file-card-spinner { display:block; width:20px; height:20px; flex-shrink:0; margin:0 17px; border:2px solid rgba(255,255,255,.2); border-top-color:var(--accent-soft); border-radius:50%; animation:spin .8s linear infinite; }
+        .file-card-error { color:#ff9b94; font-size:12px; padding:0 16px; }
+        .file-card-download { display:inline-flex; align-items:center; justify-content:center; width:42px; height:42px; flex-shrink:0; margin:0 10px; border:0; border-radius:10px; background:rgba(10,132,255,.15); color:var(--accent-soft); cursor:pointer; }
+        .file-card-download:hover { background:rgba(10,132,255,.28); color:#fff; }
+        .file-card-download svg { width:19px; height:19px; }
+        .file-card button:focus-visible,#file-drawer button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+        @media (max-width:768px) { #file-drawer,#file-drawer.open { position:fixed; inset:0; z-index:110; width:100%; height:100%; flex-basis:auto; transition:transform .35s var(--ease),opacity .2s ease,visibility 0s linear .35s; } #file-drawer { transform:translateX(100%); } #file-drawer.open { transform:none; transition-delay:0s; } .file-drawer-head { padding-top:max(8px,env(safe-area-inset-top)); } .file-drawer-body pre { padding:14px 12px; } }
+        @media (prefers-reduced-motion:reduce) { #file-drawer,#file-drawer.open { transition:none; } }
+
+        /* ===== Azioni sotto i messaggi: copia, modifica, rigenera ===== */
+        .actions { display:flex; gap:2px; margin-top:2px; opacity:0; transition:opacity .15s; }
+        .message:hover .actions, .actions:focus-within { opacity:1; }
+        .message-row:last-child .message.assistant .actions { opacity:1; }
+        .message.user .actions { justify-content:flex-end; }
+        .act { width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; background:transparent; border:none; border-radius:8px; color:var(--muted); cursor:pointer; transition:background .15s, color .15s; }
+        .act svg { width:17px; height:17px; }
+        .act:hover { background:rgba(255,255,255,.09); color:#fff; }
+        .act.done { color:var(--accent-soft); }
+        .act:focus-visible, .code-copy:focus-visible, .edit-btns button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+        .message-row:not(:last-child) .act-regen { display:none; }       /* si rigenera solo l'ultima risposta */
+        body.busy .act-edit, body.busy .act-regen { display:none; }      /* mai durante una risposta in corso */
+        @media (hover:none) { .actions { opacity:1; } }
+
+        /* ===== Modifica di una domanda ===== */
+        .message.editing { align-items:stretch; }
+        .message.editing .msg-images, .message.editing .msg-docs { align-self:flex-end; }
+        .message.editing .actions { display:none; }
+        .edit-area { width:100%; display:flex; flex-direction:column; gap:10px; background:var(--surface); border:1px solid rgba(10,132,255,.5); border-radius:22px; padding:14px 16px 12px 20px; box-shadow:0 0 0 4px rgba(10,132,255,.12); animation:fadeUp .2s var(--ease); }
+        .edit-area textarea { width:100%; flex:none; height:auto; min-height:24px; max-height:320px; margin:0; font-size:15px; line-height:1.55; overflow-y:auto; }
+        .edit-btns { display:flex; justify-content:flex-end; gap:8px; }
+        .edit-btns button { border:none; border-radius:999px; padding:8px 18px; font-size:14px; font-weight:500; cursor:pointer; transition:background .15s, opacity .15s; }
+        .edit-btns .cancel { background:transparent; color:var(--text); border:1px solid rgba(255,255,255,.18); }
+        .edit-btns .cancel:hover { background:rgba(255,255,255,.07); }
+        .edit-btns .ok { background:var(--accent); color:#fff; }
+        .edit-btns .ok:disabled { opacity:.4; cursor:not-allowed; }
+
+        /* ===== Ricerca web ===== */
+        #web-btn { display:none; align-items:center; gap:6px; height:36px; padding:0 12px 0 10px; border-radius:18px; border:1px solid transparent; background:transparent; color:var(--muted); font-size:13px; cursor:pointer; flex-shrink:0; transition:background .15s, color .15s, border-color .15s; }
+        #web-btn svg { width:18px; height:18px; }
+        #web-btn:hover { background:rgba(10,132,255,.15); color:var(--accent-soft); }
+        #web-btn.on { background:rgba(10,132,255,.2); border-color:rgba(10,132,255,.55); color:var(--accent-soft); }
+        #web-btn:disabled { opacity:.45; cursor:not-allowed; background:transparent; color:var(--muted); }
+        #web-btn:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+        .web-steps { flex-direction:column; gap:4px; margin:2px 0 8px; }
+        .web-step { display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--muted); min-width:0; }
+        .web-step .ico { display:inline-flex; width:15px; height:15px; flex-shrink:0; }
+        .web-step .ico svg { width:15px; height:15px; }
+        .web-step .ico.spin { border-radius:50%; border:2px solid rgba(255,255,255,.2); border-top-color:var(--accent-soft); animation:spin .8s linear infinite; }
+        .web-step .lbl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .web-step.done .ico { color:var(--accent-soft); }
+        .web-step.error .ico, .web-step.error .lbl { color:#ff9f0a; }
+        .web-step.python-completed-pop { animation:python-completed-pop .42s ease-out; }
+        @keyframes python-completed-pop { 0% { transform:scale(.94); opacity:.55; } 65% { transform:scale(1.04); opacity:1; } 100% { transform:scale(1); } }
+        @media (prefers-reduced-motion:reduce) { .web-step.python-completed-pop { animation:none; } }
+        .tool-entry { min-width:0; }
+        .reasoning-python-code { margin:8px 0 3px; white-space:pre-wrap; overflow-wrap:anywhere; }
+        .reasoning-python-code code { white-space:pre-wrap; overflow-wrap:anywhere; }
+        .reasoning-python-result { margin:0 0 10px; color:var(--accent-soft); font-size:13px; white-space:pre-wrap; overflow-wrap:anywhere; }
+        .content a.cite { display:inline-block; min-width:18px; padding:0 5px; margin:0 1px; font-size:11px; line-height:18px; text-align:center; text-decoration:none; border-radius:9px; background:rgba(10,132,255,.2); color:var(--accent-soft); vertical-align:2px; }
+        .content a.cite:hover { background:rgba(10,132,255,.4); color:#fff; }
+        .sources { flex-wrap:wrap; gap:8px; margin-top:10px; }
+        .source-chip { display:inline-flex; align-items:center; gap:8px; max-width:270px; padding:6px 12px 6px 8px; border-radius:12px; border:1px solid rgba(10,132,255,.25); background:rgba(10,132,255,.08); color:inherit; text-decoration:none; font-size:12.5px; transition:background .15s; }
+        .source-chip:hover { background:rgba(10,132,255,.18); }
+        .source-chip b { flex-shrink:0; min-width:18px; height:18px; line-height:18px; text-align:center; font-size:11px; font-weight:600; border-radius:9px; background:rgba(10,132,255,.3); color:#fff; }
+        .source-chip .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .source-chip small { flex-shrink:0; opacity:.55; max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    </style>
+</head>
+<body>
+    <div id="sidebar-overlay" onclick="closeSidebar()"></div>
+    <div id="sidebar">
+        <button id="new-chat" onclick="resetChat()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            Nuova chat
+        </button>
+        <div class="chat-list-label">Chat recenti</div>
+        <div id="chat-list"></div>
+        <div class="model-chip"><i></i>Qwen3.5-9B · GPU locale</div>
+    </div>
+
+    <div id="main">
+        <button id="menu-btn" onclick="openSidebar()" aria-label="Apri menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
+        <div id="chat-container"></div>
+        <div id="welcome">
+            <h1>Chatta con Gideon</h1>
+            <div class="chips">
+                <button class="chip" onclick="useChip(this)">Raccontami chi sei</button>
+                <button class="chip" onclick="useChip(this)">Raccontami una curiosità interessante</button>
+                <button class="chip" onclick="useChip(this)">Spiegami un concetto difficile in modo semplice</button>
+            </div>
+        </div>
+        <div id="input-container">
+            <div id="attach-strip"></div>
+            <div id="input-wrapper">
+                <button id="attach-btn" onclick="document.getElementById('file-input').click()" aria-label="Allega file" title="Allega immagini, PDF, codice e file di testo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+                <input type="file" id="file-input" multiple hidden onchange="attachFiles(this.files); this.value=''">
+                <textarea id="prompt" placeholder="Scrivi un messaggio a Gideon..." rows="1" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+                <button id="web-btn" onclick="toggleWeb()" aria-pressed="false" title="Attiva la ricerca web"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Web</button>
+                <button id="send" class="empty" onclick="sendMessage()" aria-label="Invia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
+            </div>
+            <div class="hint">Gideon può commettere errori.</div>
+        </div>
+    </div>
+
+    <!-- Anteprima del file generato -->
+    <div id="file-drawer" aria-label="Anteprima file" aria-hidden="true">
+        <div class="file-drawer-head"><span class="file-drawer-title" id="file-drawer-title"></span><div class="file-drawer-controls">
+            <button type="button" class="code-copy" id="file-drawer-copy"></button><button type="button" class="code-download" id="file-drawer-download"></button>
+            <button class="drawer-close" type="button" onclick="closeFileDrawer()" aria-label="Chiudi anteprima">✕</button>
+        </div></div><div class="file-drawer-body"><pre><code id="file-drawer-code"></code></pre></div>
+    </div>
+    <!-- Sidebar Ragionamento -->
+    <div id="reasoning-drawer">
+        <div class="drawer-header">
+            <span>Processo di Ragionamento</span>
+            <button class="drawer-close" onclick="closeDrawer()">✕</button>
+        </div>
+        <div class="drawer-body" id="drawer-content"></div>
+    </div>
+
+    <script>
+        let messages = [{"role": "system", "content": ""}];
+        let pendingImages = [];      // allegati in attesa di invio: {id, preview, uploading}
+        let visionEnabled = false;   // deciso dal server (/api/capabilities)
+        let pendingDocs = [];        // PDF in attesa di invio: {id, name, pages, uploading}
+        let pendingFiles = [];       // Codice e testo in attesa: {id, name, uploading}
+        let pdfEnabled = false;      // deciso dal server (/api/capabilities)
+        let webAvailable = false;    // ricerca web disponibile sul server (/api/capabilities)
+        let webOn = true;            // interruttore "Web" nel composer: attivo di default (la scelta resta nel browser)
+        const PDF_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>';
+        function hasPending() { return pendingImages.length > 0 || pendingDocs.length > 0 || pendingFiles.length > 0; }
+
+        function autoResize(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+            document.getElementById('send').classList.toggle('empty', !el.value.trim() && !hasPending());
+        }
+
+        function handleKey(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function resetChat() {
+            closeSidebar();
+            if (document.getElementById('send').disabled) return;
+            messages = [messages[0]];
+            clearPending();
+            closeFileDrawer();
+            currentId = null;
+            document.getElementById('chat-container').innerHTML = '';
+            document.getElementById('welcome').style.display = 'flex';
+            closeDrawer();
+            renderList();
+        }
+
+        function useChip(el) {
+            const p = document.getElementById('prompt');
+            p.value = el.textContent;
+            sendMessage();
+        }
+
+        function openDrawer(markdownText, toolSteps = []) {
+            closeFileDrawer();
+            const body = document.getElementById('drawer-content');
+            body.innerHTML = '';
+            const thought = String(markdownText || '');
+            const pythonSteps = (Array.isArray(toolSteps) ? toolSteps : [])
+                .filter(x => x.kind === 'python' && (typeof x.code === 'string' || typeof x.output === 'string'))
+                .map((step, index) => ({step, index, offset: Number.isFinite(step.thoughtOffset) ? Math.max(0, Math.min(thought.length, step.thoughtOffset)) : thought.length}))
+                .sort((a, b) => a.offset - b.offset || a.index - b.index);
+            const appendThought = text => {
+                if (!text) return;
+                const chunk = document.createElement('div');
+                chunk.className = 'reasoning-text';
+                chunk.innerHTML = md(text);
+                body.appendChild(chunk);
+            };
+            const appendPython = s => {
+                if (typeof s.code === 'string') {
+                    const pre = document.createElement('pre');
+                    pre.className = 'reasoning-python-code';
+                    const code = document.createElement('code');
+                    code.className = 'language-python';
+                    code.textContent = s.code;
+                    pre.appendChild(code);
+                    body.appendChild(pre);
+                }
+                if (typeof s.output === 'string') {
+                    const result = document.createElement('div');
+                    result.className = 'reasoning-python-result';
+                    result.textContent = (s.state === 'error' ? 'Errore: ' : 'Risultato: ') + s.output;
+                    body.appendChild(result);
+                }
+            };
+            let cursor = 0;
+            for (const item of pythonSteps) {
+                appendThought(thought.slice(cursor, item.offset));
+                appendPython(item.step);
+                cursor = item.offset;
+            }
+            appendThought(thought.slice(cursor));
+            document.getElementById('reasoning-drawer').classList.add('open');
+            hljs.highlightAll();
+            decorateCode(body);
+        }
+
+        function closeDrawer() { document.getElementById('reasoning-drawer').classList.remove('open'); }
+        function closeFileDrawer() { const p=document.getElementById('file-drawer'); p.classList.remove('open'); p.setAttribute('aria-hidden','true'); }
+        function openFileDrawer(card) {
+            if(!card||card.dataset.state!=='ready')return; closeDrawer();
+            const filename=card.dataset.filename,language=card.dataset.language||'',panel=document.getElementById('file-drawer'),code=document.getElementById('file-drawer-code');
+            document.getElementById('file-drawer-title').textContent=filename; code.textContent=card._fileContent||''; code.className=language?'language-'+language:'';
+            const copy=document.getElementById('file-drawer-copy');copy.innerHTML=COPY_ICON+'<span>Copia codice</span>';
+            const download=document.getElementById('file-drawer-download');download.innerHTML=DOWNLOAD_ICON+'<span>Scarica file</span>';download.dataset.filename=filename;
+            panel.classList.add('open');panel.setAttribute('aria-hidden','false');if(window.hljs){const source=card._fileContent||'';try{const result=language&&hljs.getLanguage(language)?hljs.highlight(source,{language,ignoreIllegals:true}):hljs.highlightAuto(source);code.innerHTML=result.value;code.className='hljs'+(result.language?' language-'+result.language:'');}catch(err){code.textContent=source;}}
+        }
+        document.addEventListener('keydown',e=>{if(e.key==='Escape')closeFileDrawer();});
+
+        function cleanTokens(str) {
+            return str
+                .replace(/<\|im_end\|>/g, '')
+                .replace(/<\|im_start\|>/g, '')
+                .replace(/<\|endoftext\|>/g, '');
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function formatSeconds(s) {
+            return s === 1 ? '1 secondo' : `${s} secondi`;
+        }
+
+        // ===== Copia, modifica e rigenera (stile ChatGPT) =====
+        const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+        const COPY_ICON = SVG_OPEN + '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        const DOWNLOAD_ICON = SVG_OPEN + '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg>';
+        const CHECK_ICON = SVG_OPEN + '<path d="M20 6 9 17l-5-5"/></svg>';
+        const EDIT_ICON = SVG_OPEN + '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+        const REGEN_ICON = SVG_OPEN + '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
+
+        // ===== Markdown sicuro, ragionamento, ricerca web =====
+        // Il testo del modello può riportare contenuto preso dal web: l'HTML viene sanificato prima di mostrarlo.
+        if (window.DOMPurify) {
+            DOMPurify.addHook('afterSanitizeAttributes', n => {
+                if (n.tagName === 'A') { n.setAttribute('target', '_blank'); n.setAttribute('rel', 'noopener noreferrer'); }
+            });
+        }
+        function md(text) {
+            const html = marked.parse(text);
+            return window.DOMPurify ? DOMPurify.sanitize(html) : html;
+        }
+
+        function canonicalCodeLanguage(language) {
+            const value = String(language || '').toLowerCase().replace(/^language-/, '');
+            const aliases = { 'c++':'cpp', cc:'cpp', cxx:'cpp', 'c#':'csharp', cs:'csharp',
+                js:'javascript', jsx:'javascript', node:'javascript', ts:'typescript', tsx:'typescript',
+                py:'python', rs:'rust', kt:'kotlin', sh:'bash', zsh:'bash', ps1:'powershell' };
+            return aliases[value] || value;
+        }
+
+        function requestedCodeLanguage(prompt) {
+            const text = String(prompt || '').toLowerCase();
+            const checks = [
+                ['cpp', /\b(?:c\+\+|cpp|cxx)\b/], ['csharp', /\b(?:c#|csharp|c sharp)\b/],
+                ['python', /\bpython\b/], ['javascript', /\b(?:javascript|node\.js)\b/],
+                ['typescript', /\btypescript\b/], ['java', /\bjava\b/],
+                ['rust', /\brust\b/], ['go', /\b(?:golang|in go|linguaggio go|codice go)\b/],
+                ['php', /\bphp\b/], ['ruby', /\bruby\b/], ['swift', /\bswift\b/],
+                ['kotlin', /\bkotlin\b/], ['bash', /\b(?:bash|shell script|script bash)\b/],
+                ['powershell', /\b(?:powershell|power shell)\b/], ['sql', /\bsql\b/],
+                ['html', /\bhtml\b/], ['css', /\bcss\b/],
+                ['c', /\b(?:in\s+c|script\s+(?:in\s+)?c|programma\s+(?:in\s+)?c|codice\s+c|linguaggio\s+c)\b/]
+            ];
+            const found = checks.find(([, pattern]) => pattern.test(text));
+            return found ? found[0] : '';
+        }
+
+        function fencedCodeLanguages(text) {
+            const blocks = [];
+            let active = null;
+            for (const line of String(text || '').split(/\r?\n/)) {
+                const fence = /^[ \t]{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+                if (!fence) continue;
+                if (!active) {
+                    const info = fence[2].trim().split(/\s+/, 1)[0] || '';
+                    active = {char:fence[1][0], size:fence[1].length, language:canonicalCodeLanguage(info)};
+                    continue;
+                }
+                const closing = active.char === '`' ? /^`+[ \t]*$/ : /^~+[ \t]*$/;
+                const closeRun = line.trimStart().match(/^(`+|~+)/);
+                if (closing.test(line) && closeRun && closeRun[0].length >= active.size) {
+                    blocks.push({index:blocks.length, language:active.language});
+                    active = null;
+                }
+            }
+            if (active) blocks.push({index:blocks.length, language:active.language, open:true});
+            return blocks;
+        }
+
+        function extractCodeDownloadInfo(text, userPrompt = '') {
+            const source = String(text || '');
+            // Il marcatore può essere prima del blocco o, come fa talvolta il modello,
+            // sulla prima riga al suo interno. In entrambi i casi va associato al fence aperto.
+            const marker = /^[ \t]*<!-- gideon-file:\s*([^>\r\n]+?)\s*-->[ \t]*(?:\r?\n|$)/gm;
+            const names = new Map();
+            const countFences = before => {
+                let count = 0, active = null;
+                for (const line of before.split(/\r?\n/)) {
+                    const fence = /^[ \t]{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+                    if (!fence) continue;
+                    if (!active) { active = {char:fence[1][0], size:fence[1].length}; continue; }
+                    const closing = active.char === '`' ? /^`+[ \t]*$/ : /^~+[ \t]*$/;
+                    const closeRun = line.trimStart().match(/^(`+|~+)/);
+                    if (closing.test(line) && closeRun && closeRun[0].length >= active.size) { count++; active = null; }
+                }
+                return count;
+            };
+            for (const match of source.matchAll(marker)) {
+                names.set(countFences(source.slice(0, match.index)), match[1].trim());
+            }
+            const blocks = fencedCodeLanguages(source);
+            const requestedLanguage = requestedCodeLanguage(userPrompt);
+            if (requestedLanguage) {
+                const blockLanguages = new Map(blocks.map(block => [block.index, block.language]));
+                for (const index of names.keys()) {
+                    if (blockLanguages.get(index) !== requestedLanguage) names.delete(index);
+                }
+            }
+            const fullFileRequest = /\b(?:snippet|frammento|estratto|pseudocodice|solo\s+(?:una\s+)?funzione)\b/i.test(userPrompt) ? false :
+                (/\b(?:scriv\w*|crea\w*|genera\w*|prepara\w*|fammi|realizz\w*|implement\w*|write|create|generate|build|make)\b/i.test(userPrompt) &&
+                 /\b(?:script|programma|program|file|sorgente|source\s+file)\b/i.test(userPrompt)) ||
+                /\b(?:script|programma|program)\b.{0,50}\b(?:in|linguaggio|language)\b/i.test(userPrompt);
+            if (!names.size && fullFileRequest) {
+                const block = requestedLanguage ? blocks.find(item => item.language === requestedLanguage) : blocks[0];
+                if (block) {
+                    const language = block.language || requestedLanguage;
+                    const extension = Object.prototype.hasOwnProperty.call(CODE_EXTENSIONS, language)
+                        ? CODE_EXTENSIONS[language]
+                        : (language || 'txt');
+                    const filename = extension === ''
+                        ? (language === 'dockerfile' ? 'Dockerfile' : 'Makefile')
+                        : 'script.' + extension;
+                    names.set(block.index, filename);
+                }
+            }
+            return {markdown: source.replace(marker, ''), names};
+        }
+
+        // Separa ragionamento e risposta. Il server racchiude ogni fase di ragionamento fra <think> e </think>
+        // (con la ricerca web ce ne può essere più d'una); il testo fuori dai tag è la risposta.
+        function splitThink(text) {
+            let thought = '', answer = '', i = 0, open = false;
+            const o = text.indexOf('<think>'), c = text.indexOf('</think>');
+            if (c !== -1 && (o === -1 || c < o)) { thought = text.slice(0, c); i = c + 8; }   // </think> senza <think> iniziale
+            while (i < text.length) {
+                const s = text.indexOf('<think>', i);
+                if (s === -1) { answer += text.slice(i); break; }
+                answer += text.slice(i, s);
+                const e = text.indexOf('</think>', s + 7);
+                if (e === -1) { thought += (thought ? '\n\n' : '') + text.slice(s + 7); open = true; break; }
+                thought += (thought ? '\n\n' : '') + text.slice(s + 7, e);
+                i = e + 8;
+            }
+            return {thought: thought.trim(), answer: answer.trim(), open};
+        }
+
+        const GLOBE_ICON = SVG_OPEN + '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+        const WARN_ICON = SVG_OPEN + '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+        const CODE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"/></svg>';
+        const SAFE_URL = /^https?:\/\//i;
+
+        function hostOf(url) {
+            try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url; }
+        }
+
+        function stepText(s) {
+            if (s.kind === 'python') return s.state === 'error' ? 'Controllo Python non riuscito' : (s.state === 'running' ? 'Eseguo un controllo con Python' : 'Controllo con Python completato');
+            if (s.state === 'error') return (s.kind === 'open' ? 'Pagina non raggiungibile: ' : 'Ricerca non riuscita: ') + s.label;
+            const run = s.state === 'running';
+            if (s.kind === 'open') return (run ? 'Apro ' : 'Aperto ') + s.label;
+            return (run ? 'Cerco sul web: ' : 'Cercato sul web: ') + s.label;
+        }
+
+        function upsertStep(steps, t) {
+            const i = steps.findIndex(x => x.id === t.id);
+            if (i === -1) steps.push({...t});
+            else Object.assign(steps[i], t);
+        }
+
+        function drawSteps(el, steps, animatePythonId = null) {
+            el.innerHTML = '';
+            const latestPython = [...steps].reverse().find(s => s.kind === 'python');
+            const visibleSteps = steps.filter(s => s.kind !== 'python' || s === latestPython);
+            el.style.display = visibleSteps.length ? 'flex' : 'none';
+            for (const s of visibleSteps) {
+                const entry = document.createElement('div');
+                entry.className = 'tool-entry';
+                const d = document.createElement('div');
+                d.className = 'web-step ' + (s.state || 'done');
+                if (s.kind === 'python' && s.state === 'done' && s.id === animatePythonId) d.classList.add('python-completed-pop');
+                const ico = document.createElement('span');
+                ico.className = 'ico';
+                if (s.state === 'running') ico.classList.add('spin');
+                else ico.innerHTML = s.state === 'error' ? WARN_ICON : (s.kind === 'python' ? CODE_ICON : GLOBE_ICON);
+                const lbl = document.createElement('span');
+                lbl.className = 'lbl';
+                lbl.textContent = stepText(s);
+                lbl.title = lbl.textContent;
+                d.append(ico, lbl);
+                entry.appendChild(d);
+                el.appendChild(entry);
+            }
+        }
+
+        // Trasforma i riferimenti [1], [2] o [1, 2] del testo in piccoli link alle fonti
+        const CITE_RE = /\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]/g;
+        function linkCitations(root, sources) {
+            if (!Array.isArray(sources) || !sources.length) return;
+            const byN = new Map(sources.filter(s => SAFE_URL.test(s.url || '')).map(s => [Number(s.n), s]));
+            if (!byN.size) return;
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            const nodes = [];
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+                if (!n.parentElement.closest('pre, code, a')) nodes.push(n);
+            }
+            for (const node of nodes) {
+                const text = node.nodeValue;
+                CITE_RE.lastIndex = 0;
+                const frag = document.createDocumentFragment();
+                let last = 0, m;
+                while ((m = CITE_RE.exec(text))) {
+                    const found = m[1].split(',').map(x => Number(x.trim())).filter(x => byN.has(x));
+                    if (!found.length) continue;
+                    frag.append(text.slice(last, m.index));
+                    for (const x of found) {
+                        const src = byN.get(x);
+                        const a = document.createElement('a');
+                        a.className = 'cite'; a.href = src.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+                        a.title = src.title || src.url; a.textContent = String(x);
+                        frag.append(a);
+                    }
+                    last = m.index + m[0].length;
+                }
+                if (!last) continue;   // nessuna citazione valida in questo testo
+                frag.append(text.slice(last));
+                node.replaceWith(frag);
+            }
+        }
+
+        // Elenco delle fonti sotto la risposta: solo quelle citate nel testo (tutte, se nessuna è citata)
+        function drawSources(el, sources, answerText) {
+            el.innerHTML = '';
+            const valid = (Array.isArray(sources) ? sources : []).filter(s => SAFE_URL.test(s.url || ''));
+            if (!valid.length) { el.style.display = 'none'; return; }
+            const cited = new Set();
+            for (const m of (answerText || '').matchAll(CITE_RE)) m[1].split(',').forEach(x => cited.add(Number(x.trim())));
+            const shown = valid.filter(s => cited.has(Number(s.n)));
+            for (const s of (shown.length ? shown : valid)) {
+                const a = document.createElement('a');
+                a.className = 'source-chip'; a.href = s.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = s.url;
+                const n = document.createElement('b'); n.textContent = String(s.n);
+                const t = document.createElement('span'); t.className = 'nm'; t.textContent = s.title || hostOf(s.url);
+                const h = document.createElement('small'); h.textContent = hostOf(s.url);
+                a.append(n, t, h);
+                el.appendChild(a);
+            }
+            el.style.display = 'flex';
+        }
+
+        function syncWebBtn() {
+            const b = document.getElementById('web-btn');
+            b.classList.toggle('on', webOn && webAvailable);
+            b.setAttribute('aria-pressed', String(webOn && webAvailable));
+            b.title = !webAvailable ? 'Ricerca web non disponibile: imposta BRAVE_API_KEY o installa ddgs (vedi start.bat)'
+                : webOn ? 'Ricerca web attiva: clicca per disattivarla' : 'Ricerca web spenta: clicca per attivarla';
+        }
+
+        function toggleWeb() {
+            if (!webAvailable) return;
+            webOn = !webOn;
+            try { localStorage.setItem('gideon_web', webOn ? '1' : '0'); } catch (e) {}
+            syncWebBtn();
+        }
+
+        function setBusy(b) {
+            document.getElementById('send').disabled = b;
+            document.body.classList.toggle('busy', b);
+        }
+
+        // Scorrimento intelligente: durante la risposta segue il testo solo se sei già in fondo
+        function nearBottom() {
+            const c = document.getElementById('chat-container');
+            return c.scrollHeight - c.scrollTop - c.clientHeight < 150;
+        }
+
+        // Copia negli appunti. navigator.clipboard funziona solo su https o localhost: dal telefono
+        // (http://IP-DEL-PC:8000) serve il metodo di ripiego.
+        async function copyText(t) {
+            try {
+                if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(t); return true; }
+            } catch (e) {}
+            const ta = document.createElement('textarea');
+            ta.value = t; ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+            document.body.appendChild(ta);
+            ta.select(); ta.setSelectionRange(0, t.length);
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) {}
+            ta.remove();
+            return ok;
+        }
+
+        function flashDone(btn, label) {
+            if (btn._timer) clearTimeout(btn._timer); else btn._orig = btn.innerHTML;
+            btn.classList.add('done');
+            btn.innerHTML = CHECK_ICON + (label ? '<span>' + label + '</span>' : '');
+            btn._timer = setTimeout(() => { btn.innerHTML = btn._orig; btn.classList.remove('done'); btn._timer = null; }, 1600);
+        }
+
+        async function doCopy(btn, text, label) {
+            if (await copyText(text)) flashDone(btn, label);
+            else flashHint('Copia non riuscita: seleziona il testo a mano.');
+        }
+
+        const CODE_EXTENSIONS = {
+            python:'py', py:'py', javascript:'js', js:'js', node:'js', typescript:'ts', ts:'ts',
+            jsx:'jsx', tsx:'tsx', html:'html', xml:'xml', css:'css', scss:'scss', sass:'sass',
+            json:'json', jsonc:'jsonc', yaml:'yaml', yml:'yml', toml:'toml', ini:'ini',
+            bash:'sh', shell:'sh', sh:'sh', zsh:'sh', powershell:'ps1', ps1:'ps1', batch:'bat', bat:'bat',
+            sql:'sql', java:'java', kotlin:'kt', kt:'kt', c:'c', 'c++':'cpp', cpp:'cpp', h:'h', hpp:'hpp',
+            csharp:'cs', 'c#':'cs', cs:'cs', go:'go', golang:'go', rust:'rs', rs:'rs', php:'php',
+            ruby:'rb', rb:'rb', swift:'swift', vue:'vue', svelte:'svelte', astro:'astro',
+            graphql:'graphql', gql:'gql', markdown:'md', md:'md', dockerfile:'', makefile:'',
+            dart:'dart', lua:'lua', perl:'pl', pl:'pl', r:'r', julia:'jl', jl:'jl', scala:'scala',
+            groovy:'groovy', haskell:'hs', hs:'hs', elixir:'ex', ex:'ex', erlang:'erl', erl:'erl',
+            clojure:'clj', clj:'clj', fsharp:'fs', 'f#':'fs', vb:'vb', visualbasic:'vb',
+            objectivec:'m', 'objective-c':'m', objectivecpp:'mm', matlab:'m', assembly:'asm', asm:'asm',
+            fortran:'f90', fortran77:'f', ocaml:'ml', proto:'proto', protobuf:'proto',
+            terraform:'tf', hcl:'hcl', diff:'diff', patch:'patch', perl6:'raku', raku:'raku'
+        };
+
+        // Estensioni che Windows/macOS/Linux eseguono con un doppio clic: il file resta scaricabile
+        // (il contenuto è invariato) ma con ".txt" in coda, così non parte per sbaglio.
+        const RISKY_EXTENSIONS = new Set(['bat','cmd','com','exe','scr','pif','msi','msp','dll','cpl','vbs','vbe',
+            'wsf','wsh','jse','hta','ps1','psm1','psd1','ps1xml','psc1','lnk','reg','inf','scf','url','jar','app','command']);
+
+        function safeDownloadName(rawName, language) {
+            let name = String(rawName || '').replace(/[\\/]/g, '/').split('/').pop();
+            name = name.replace(/[<>:"|?*\x00-\x1f]/g, '_').trim().replace(/[. ]+$/g, '').slice(0, 120);
+            if (!name || name === '.' || name === '..') name = 'script';
+            const lang = String(language || '').toLowerCase();
+            const ext = Object.prototype.hasOwnProperty.call(CODE_EXTENSIONS, lang) ? CODE_EXTENSIONS[lang] : null;
+            if (ext) name = name.replace(/\.[^.]*$/, '') + '.' + ext;
+            else if (ext === '') name = name.replace(/\.[^.]*$/, '');
+            else if (!/\.[a-z0-9]{1,12}$/i.test(name)) name += '.txt';
+            const last = /\.([a-z0-9]{1,12})$/i.exec(name);
+            if (last && RISKY_EXTENSIONS.has(last[1].toLowerCase())) name += '.txt';
+            if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = '_' + name;
+            return name;
+        }
+
+        function downloadCode(button, code, filename) {
+            if (!code) return;
+            const blob = new Blob([code.textContent], {type:'application/octet-stream'});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url; link.download = filename; link.style.display = 'none';
+            document.body.appendChild(link); link.click(); link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            const original = button.innerHTML;
+            button.innerHTML = CHECK_ICON + '<span>Scaricato</span>';
+            setTimeout(() => { if (button.isConnected) button.innerHTML = original; }, 1600);
+        }
+
+        // Aggiunge una barra per ogni <pre>; il download appare solo sui file completi marcati.
+        function decorateCode(root, downloadableNames = new Map()) {
+            root.querySelectorAll('pre').forEach((pre, index) => {
+                if (pre.parentElement.classList.contains('codeblock')) return;
+                const code = pre.querySelector('code');
+                const m = code && /language-([\w+#.-]+)/.exec(code.className);
+                const wrap = document.createElement('div');
+                wrap.className = 'codeblock';
+                const head = document.createElement('div');
+                head.className = 'cb-head';
+                const lang = document.createElement('span');
+                lang.textContent = m ? m[1] : 'codice';
+                const btn = document.createElement('button');
+                btn.type = 'button'; btn.className = 'code-copy';
+                btn.innerHTML = COPY_ICON + '<span>Copia codice</span>';
+                const controls = document.createElement('div');
+                controls.style.cssText = 'display:flex;align-items:center;gap:2px';
+                controls.appendChild(btn);
+                const rawName = downloadableNames.get(index);
+                if (rawName && code) {
+                    const download = document.createElement('button');
+                    download.type = 'button'; download.className = 'code-download';
+                    download.title = 'Scarica file';
+                    download.dataset.filename = safeDownloadName(rawName, m && m[1]);
+                    download.setAttribute('aria-label', 'Scarica ' + download.dataset.filename);
+                    download.innerHTML = DOWNLOAD_ICON + '<span>Scarica file</span>';
+                    controls.appendChild(download);
+                }
+                head.append(lang, controls);
+                pre.replaceWith(wrap);
+                wrap.append(head, pre);
+            });
+        }
+
+        const FILE_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+        function makeFileCard(filename,language,codeText,state) {
+            const card=document.createElement('div');card.className='file-card';card.dataset.filename=filename;card.dataset.language=language||'';card.dataset.state=state;card._fileContent=codeText;
+            const open=document.createElement('button');open.type='button';open.className='file-card-open';open.disabled=state!=='ready';open.setAttribute('aria-label',(state==='ready'?'Apri ':'File in preparazione: ')+filename);
+            const icon=document.createElement('span');icon.className='file-card-icon';icon.innerHTML=FILE_ICON;
+            const meta=document.createElement('span');meta.className='file-card-meta';const name=document.createElement('span');name.className='file-card-name';name.textContent=filename;
+            const subtitle=document.createElement('span');subtitle.className='file-card-subtitle';subtitle.textContent=language?language.toUpperCase():'File';meta.append(name,subtitle);open.append(icon,meta);card.appendChild(open);
+            if(state==='loading'){const spin=document.createElement('span');spin.className='file-card-spinner';spin.style.animationDelay='-'+((performance.now()%800)/1000)+'s';spin.setAttribute('aria-label','Generazione in corso');card.appendChild(spin);}
+            else if(state==='error'){const error=document.createElement('span');error.className='file-card-error';error.textContent='Generazione interrotta';card.appendChild(error);}
+            else{const download=document.createElement('button');download.type='button';download.className='file-card-download';download.title='Scarica file';download.setAttribute('aria-label','Scarica '+filename);download.dataset.filename=filename;download.innerHTML=DOWNLOAD_ICON;card.appendChild(download);}
+            return card;
+        }
+        function renderAssistantAnswer(root,text,userPrompt='',state='ready') {
+            const files=extractCodeDownloadInfo(text,userPrompt),fences=fencedCodeLanguages(text);root.innerHTML=text?md(files.markdown):'';const blocks=root.querySelectorAll('pre');
+            for(const [index,rawName] of files.names){const pre=blocks[index];if(!pre)continue;const code=pre.querySelector('code');const match=code&&/language-([\w+#.-]+)/.exec(code.className);const language=match?canonicalCodeLanguage(match[1]):'';const fence=fences.find(item=>item.index===index);const cardState=fence&&!fence.open?'ready':state==='loading'?'loading':'error';pre.replaceWith(makeFileCard(safeDownloadName(rawName,language),language,code?code.textContent:'',cardState));}
+            root.querySelectorAll('pre code').forEach(node=>hljs.highlightElement(node));decorateCode(root);return files;
+        }
+
+        function actionBtn(cls, title, icon) {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'act ' + cls;
+            b.title = title; b.setAttribute('aria-label', title);
+            b.innerHTML = icon;
+            return b;
+        }
+
+        function addUserActions(row, msgEl, text) {
+            const bar = document.createElement('div');
+            bar.className = 'actions';
+            if (text) bar.appendChild(actionBtn('act-copy', 'Copia', COPY_ICON));
+            bar.appendChild(actionBtn('act-edit', 'Modifica', EDIT_ICON));
+            msgEl.appendChild(bar);
+        }
+
+        function addAssistantActions(row, text) {
+            row._text = text;
+            const bar = document.createElement('div');
+            bar.className = 'actions';
+            bar.append(actionBtn('act-copy', 'Copia', COPY_ICON), actionBtn('act-regen', 'Rigenera risposta', REGEN_ICON));
+            row.querySelector('.message').appendChild(bar);
+        }
+
+        // ----- Modifica di una domanda: sostituisce quella e tutte le risposte che la seguono -----
+        function cancelEdit() {
+            const box = document.querySelector('.edit-area');
+            if (!box) return;
+            const msg = box.closest('.message');
+            const bubble = msg.querySelector('.content');
+            if (bubble) bubble.style.display = '';
+            msg.classList.remove('editing');
+            box.remove();
+        }
+
+        function startEdit(row) {
+            if (document.body.classList.contains('busy')) return;
+            const idx = +row.dataset.i;
+            const old = messages[idx];
+            if (!old || old.role !== 'user') return;
+            cancelEdit();
+            const msg = row.querySelector('.message');
+            const bubble = msg.querySelector('.content');
+            if (bubble) bubble.style.display = 'none';
+            msg.classList.add('editing');
+
+            const box = document.createElement('div');
+            box.className = 'edit-area';
+            const ta = document.createElement('textarea');
+            ta.value = old.content || '';
+            ta.rows = 1;
+            const btns = document.createElement('div');
+            btns.className = 'edit-btns';
+            const cancel = document.createElement('button');
+            cancel.type = 'button'; cancel.className = 'cancel'; cancel.textContent = 'Annulla';
+            const ok = document.createElement('button');
+            ok.type = 'button'; ok.className = 'ok'; ok.textContent = 'Invia';
+            btns.append(cancel, ok);
+            box.append(ta, btns);
+            msg.appendChild(box);
+
+            const hasAttach = !!((old.images && old.images.length) || (old.docs && old.docs.length) || (old.files && old.files.length));
+            const fit = () => {
+                ta.style.height = 'auto';
+                ta.style.height = Math.min(ta.scrollHeight, 320) + 'px';
+                const t = ta.value.trim();
+                ok.disabled = t === (old.content || '').trim() || (!t && !hasAttach);
+            };
+            const submit = () => { if (!ok.disabled) submitEdit(row, idx, ta.value.trim()); };
+            ta.addEventListener('input', fit);
+            ta.addEventListener('keydown', e => {
+                if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+                else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+            });
+            cancel.onclick = cancelEdit;
+            ok.onclick = submit;
+            fit();
+            ta.focus();
+            ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
+
+        function submitEdit(row, idx, newText) {
+            if (document.body.classList.contains('busy')) return;
+            const old = messages[idx];
+            // via la domanda originale e tutto ciò che viene dopo (righe e cronologia)
+            let n = row;
+            while (n) { const next = n.nextElementSibling; n.remove(); n = next; }
+            messages = messages.slice(0, idx);
+            const userMsg = {"role": "user", "content": newText};
+            if (old.images && old.images.length) userMsg.images = old.images;
+            if (old.docs && old.docs.length) userMsg.docs = old.docs;
+            if (old.files && old.files.length) userMsg.files = old.files;
+            messages.push(userMsg);
+            appendUserMessage(newText, userMsg.images || [], userMsg.docs || [], messages.length - 1, userMsg.files || []);
+            runAssistant();
+        }
+
+        // ----- Rigenera l'ultima risposta -----
+        function regenerate() {
+            if (document.body.classList.contains('busy')) return;
+            const last = messages[messages.length - 1];
+            if (!last || last.role !== 'assistant') return;
+            messages.pop();
+            const rows = document.getElementById('chat-container').children;
+            if (rows.length) rows[rows.length - 1].remove();
+            runAssistant();
+        }
+
+        // Un solo ascoltatore per tutti i pulsanti: funziona anche quando il testo viene ridisegnato
+        document.getElementById('chat-container').addEventListener('click', e => {
+            const b = e.target.closest('button');
+            if (!b) return;
+            const row = b.closest('.message-row');
+            if(b.classList.contains('file-card-open'))openFileDrawer(b.closest('.file-card'));
+            else if(b.classList.contains('file-card-download')){const card=b.closest('.file-card');downloadCode(b,{textContent:card?card._fileContent:''},b.dataset.filename);}
+            else if (b.classList.contains('code-copy')) {
+                const code = b.closest('.codeblock').querySelector('code');
+                doCopy(b, code ? code.textContent : '', 'Copiato!');
+            } else if (b.classList.contains('code-download')) {
+                const code = b.closest('.codeblock').querySelector('code');
+                downloadCode(b, code, b.dataset.filename);
+            } else if (b.classList.contains('act-copy') && row) {
+                doCopy(b, extractCodeDownloadInfo(row._text || '').markdown, '');
+            } else if (b.classList.contains('act-edit') && row) {
+                startEdit(row);
+            } else if (b.classList.contains('act-regen')) {
+                regenerate();
+            }
+        });
+
+        document.getElementById('file-drawer').addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='file-drawer-copy')await doCopy(b,document.getElementById('file-drawer-code').textContent,'Copiato!');else if(b.id==='file-drawer-download')downloadCode(b,document.getElementById('file-drawer-code'),b.dataset.filename);});
+
+        // ===== Allegati immagine =====
+        const MAX_IMAGES = 4;
+        const MAX_SIDE = 1280;
+
+        function renderStrip() {
+            const strip = document.getElementById('attach-strip');
+            strip.innerHTML = '';
+            strip.classList.toggle('has', hasPending());
+            for (const p of pendingDocs) {
+                const d = document.createElement('div');
+                d.className = 'att doc' + (p.uploading ? ' loading' : '');
+                d.innerHTML = PDF_ICON;
+                const nm = document.createElement('span');
+                nm.className = 'nm'; nm.textContent = p.name; nm.title = p.name;
+                d.appendChild(nm);
+                const x = document.createElement('button');
+                x.textContent = '✕'; x.title = 'Rimuovi';
+                x.onclick = () => { pendingDocs = pendingDocs.filter(y => y !== p); renderStrip(); };
+                d.appendChild(x);
+                strip.appendChild(d);
+            }
+            for (const p of pendingFiles) {
+                const d = document.createElement('div');
+                d.className = 'att doc' + (p.uploading ? ' loading' : '');
+                d.innerHTML = PDF_ICON;
+                const nm = document.createElement('span');
+                nm.className = 'nm'; nm.textContent = p.name; nm.title = p.name;
+                d.appendChild(nm);
+                const x = document.createElement('button');
+                x.textContent = '✕'; x.title = 'Rimuovi';
+                x.onclick = () => { pendingFiles = pendingFiles.filter(y => y !== p); renderStrip(); };
+                d.appendChild(x);
+                strip.appendChild(d);
+            }
+            for (const p of pendingImages) {
+                const d = document.createElement('div');
+                d.className = 'att' + (p.uploading ? ' loading' : '');
+                if (p.preview) { const img = document.createElement('img'); img.src = p.preview; d.appendChild(img); }
+                const x = document.createElement('button');
+                x.textContent = '✕'; x.title = 'Rimuovi';
+                x.onclick = () => removePending(p);
+                d.appendChild(x);
+                strip.appendChild(d);
+            }
+            const input = document.getElementById('prompt');
+            document.getElementById('send').classList.toggle('empty', !input.value.trim() && !hasPending());
+        }
+
+        function removePending(p) { pendingImages = pendingImages.filter(x => x !== p); renderStrip(); }
+        function clearPending() { pendingImages = []; pendingDocs = []; pendingFiles = []; renderStrip(); }
+
+        let hintTimer = null;
+        function flashHint(t) {
+            const h = document.querySelector('.hint');
+            if (!h.dataset.orig) h.dataset.orig = h.textContent;
+            h.textContent = t; h.style.color = '#ff9f0a';
+            clearTimeout(hintTimer);
+            hintTimer = setTimeout(() => { h.textContent = h.dataset.orig; h.style.color = ''; }, 3500);
+        }
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file);
+                const img = new Image();
+                img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+                img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('immagine non leggibile')); };
+                img.src = url;
+            });
+        }
+
+        // Ridimensiona (lato massimo 1280 px) e converte in JPEG: meno dati da inviare e da analizzare
+        async function prepareImage(file) {
+            const img = await loadImage(file);
+            const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+            const w = Math.max(1, Math.round(img.naturalWidth * scale));
+            const h = Math.max(1, Math.round(img.naturalHeight * scale));
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);   // sfondo bianco per i PNG trasparenti
+            ctx.drawImage(img, 0, 0, w, h);
+            return c.toDataURL('image/jpeg', 0.88);
+        }
+
+        const MAX_DOCS = 3;
+        const MAX_FILES = 30;
+        function isPdf(f) { return f.type === 'application/pdf' || /\.pdf$/i.test(f.name || ''); }
+        function isCodeFile(f) { return !f.type.startsWith('image/') && !isPdf(f); }
+
+        async function attachPdfs(files) {
+            if (!pdfEnabled) { flashHint('Lettura PDF non disponibile sul server (installa pymupdf).'); return; }
+            for (const f of files) {
+                if (pendingDocs.length >= MAX_DOCS) { flashHint(`Massimo ${MAX_DOCS} PDF per messaggio.`); break; }
+                const p = {id: null, name: f.name || 'documento.pdf', pages: 0, uploading: true};
+                pendingDocs.push(p);
+                renderStrip();
+                try {
+                    const r = await fetch('/api/pdfs', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/pdf', 'X-Filename': encodeURIComponent(p.name)},
+                        body: f
+                    });
+                    if (!r.ok) {
+                        let detail = '';
+                        try { detail = (await r.json()).detail || ''; } catch (e) {}
+                        throw new Error(detail);
+                    }
+                    const res = await r.json();
+                    p.id = res.id; p.pages = res.pages; p.uploading = false;
+                    if (res.scanned && !visionEnabled) flashHint(`${res.scanned} pagine sono scansioni: serve il modello di visione per leggerle.`);
+                } catch (e) {
+                    pendingDocs = pendingDocs.filter(x => x !== p);
+                    flashHint(e.message || 'Impossibile allegare il PDF.');
+                }
+                renderStrip();
+            }
+        }
+
+        async function attachFiles(fileList) {
+            const all = Array.from(fileList);
+            const pdfs = all.filter(isPdf);
+            const files = all.filter(f => f.type.startsWith('image/'));
+            const codeFiles = all.filter(isCodeFile);
+            if (!pdfs.length && !files.length && !codeFiles.length) return;
+            if (pdfs.length) await attachPdfs(pdfs);
+            if (files.length && !visionEnabled) { flashHint('Analisi immagini non disponibile.'); return; }
+            for (const f of files) {
+                if (pendingImages.length >= MAX_IMAGES) { flashHint(`Massimo ${MAX_IMAGES} immagini per messaggio.`); break; }
+                const p = {id: null, preview: '', uploading: true};
+                pendingImages.push(p);
+                renderStrip();
+                try {
+                    const dataUrl = await prepareImage(f);
+                    p.preview = dataUrl;
+                    renderStrip();
+                    const res = await api('/api/images', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({data: dataUrl})
+                    });
+                    p.id = res.id;
+                    p.uploading = false;
+                } catch (e) {
+                    pendingImages = pendingImages.filter(x => x !== p);
+                    flashHint("Impossibile allegare l'immagine.");
+                }
+                renderStrip();
+            }
+            for (const f of codeFiles) {
+                if (pendingFiles.length >= MAX_FILES) { flashHint(`Massimo ${MAX_FILES} file di codice o testo per messaggio.`); break; }
+                const p = {id: null, name: f.name || 'file.txt', uploading: true};
+                pendingFiles.push(p);
+                renderStrip();
+                try {
+                    const res = await api('/api/files', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(p.name)},
+                        body: f
+                    });
+                    p.id = res.id; p.name = res.name || p.name; p.uploading = false;
+                } catch (e) {
+                    pendingFiles = pendingFiles.filter(x => x !== p);
+                    flashHint(e.message || `Impossibile allegare ${p.name}. Usa un file di testo o codice UTF-8 (max 2 MB).`);
+                }
+                renderStrip();
+            }
+        }
+
+        // Incolla (Ctrl+V) e trascina (drag & drop)
+        document.addEventListener('paste', e => {
+            const files = Array.from(e.clipboardData?.files || []);
+            if (files.length) { e.preventDefault(); attachFiles(files); }
+        });
+        const mainEl = document.getElementById('main');
+        let dragDepth = 0;
+        mainEl.addEventListener('dragenter', e => {
+            if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); dragDepth++; mainEl.classList.add('dragging'); }
+        });
+        mainEl.addEventListener('dragover', e => e.preventDefault());
+        mainEl.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) mainEl.classList.remove('dragging'); });
+        mainEl.addEventListener('drop', e => {
+            e.preventDefault(); dragDepth = 0; mainEl.classList.remove('dragging');
+            attachFiles(e.dataTransfer.files);
+        });
+
+        async function sendMessage() {
+            const input = document.getElementById('prompt');
+            const text = input.value.trim();
+            if (pendingImages.some(p => p.uploading) || pendingDocs.some(p => p.uploading) || pendingFiles.some(p => p.uploading)) { flashHint('Attendi il caricamento degli allegati...'); return; }
+            const imgs = pendingImages.map(p => p.id);
+            const docs = pendingDocs.map(p => ({id: p.id, name: p.name, pages: p.pages}));
+            const files = pendingFiles.map(p => ({id: p.id, name: p.name}));
+            if (!text && !imgs.length && !docs.length && !files.length) return;
+
+            input.value = '';
+            autoResize(input);
+            input.style.height = '24px';
+            const userMsg = {"role": "user", "content": text};
+            if (imgs.length) userMsg.images = imgs;
+            if (docs.length) userMsg.docs = docs;
+            if (files.length) userMsg.files = files;
+            messages.push(userMsg);
+            clearPending();
+
+            appendUserMessage(text, imgs, docs, messages.length - 1, files);
+            runAssistant();
+        }
+
+        // Genera la risposta dell'assistente per la cronologia attuale (usata da invio, modifica e rigenera)
+        async function runAssistant() {
+            const { row: asstRow, statusEl, stepsEl, answerBox, sourcesEl } = createAssistantMsgStructure();
+            const container = document.getElementById('chat-container');
+            setBusy(true);
+
+            let fullText = '';
+            let responseCompleted=false;
+            const lastUserPrompt=[...messages].reverse().find(m=>m.role==='user')?.content||'';
+            let thoughtText = '';
+            let thinking = false, everThought = false;
+            let thinkStart = 0, thinkAccum = 0, thinkSecs = 0;   // il tempo di ragionamento si somma fra le fasi
+            let timerInterval = null;
+            let answerOnly = '';
+            const steps = [];     // strumenti usati (ricerca web): {id, kind, label, state}
+            let sources = [];     // fonti numerate dal server: {n, title, url}
+
+            let statusActive = false;
+            function showStatus(t) {
+                statusActive = true;
+                statusEl.className = 'thought-status';
+                statusEl.style.display = 'inline-flex';
+                statusEl.innerHTML = `${escapeHtml(t)}<span class="dots"></span>`;
+            }
+            function hideStatus() {
+                if (statusActive) { statusActive = false; statusEl.style.display = 'none'; }
+            }
+
+            function startThinking() {
+                thinking = true; everThought = true;
+                thinkStart = Date.now();
+                statusEl.className = 'thought-status';
+                statusEl.style.display = 'inline-flex';
+                statusEl.onclick = null;
+                statusEl.innerHTML = `Sto pensando<span class="dots"></span> (<span class="timer">${Math.floor(thinkAccum / 1000)}</span>s)`;
+                timerInterval = setInterval(() => {
+                    const t = statusEl.querySelector('.timer');
+                    if (t) t.textContent = Math.floor((thinkAccum + Date.now() - thinkStart) / 1000);
+                }, 250);
+            }
+
+            function finishThinking() {
+                if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+                thinkAccum += Date.now() - thinkStart;
+                thinking = false;
+                thinkSecs = Math.round(thinkAccum / 1000);
+                statusEl.className = 'thought-status clickable';
+                statusEl.textContent = `Ragionato per ${formatSeconds(thinkSecs)}`;
+                statusEl.onclick = () => openDrawer(thoughtText, steps);
+            }
+
+            function render() {
+                const stick = nearBottom();   // calcolato prima di ridisegnare il testo
+                const clean = cleanTokens(fullText);
+
+                // evita il flash di un "<thi" parziale all'inizio dello stream
+                const head = clean.trimStart();
+                if (!everThought && head.length < 7 && '<think>'.startsWith(head)) return;
+
+                const {thought, answer, open} = splitThink(clean);
+                thoughtText = thought;
+                if (open && !thinking) startThinking();
+                else if (!open && thinking) finishThinking();
+                else if (!open && !everThought && thought) { startThinking(); finishThinking(); }
+
+                if(answer){renderAssistantAnswer(answerBox,answer,lastUserPrompt,'loading');linkCitations(answerBox,sources);}
+                else answerBox.innerHTML=''; // mentre pensa il ragionamento resta nascosto
+                if (stick) container.scrollTop = container.scrollHeight;
+            }
+
+            // Durante lo streaming il ridisegno (marked + DOMPurify + highlight) avviene al massimo una volta
+            // per frame, non a ogni token. flushRender() fa il ridisegno finale subito; cancelRender() scarta
+            // quello in attesa (serve prima del render finale o di errore, per non sovrascriverlo).
+            let renderPending = false, renderRaf = 0;
+            function scheduleRender() {
+                if (renderPending) return;
+                renderPending = true;
+                renderRaf = requestAnimationFrame(() => { renderPending = false; renderRaf = 0; render(); });
+            }
+            function cancelRender() {
+                if (renderRaf) { cancelAnimationFrame(renderRaf); renderRaf = 0; }
+                renderPending = false;
+            }
+            function flushRender() {
+                if (!renderPending) return;
+                cancelRender();
+                render();
+            }
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        web: webAvailable && webOn,
+                        messages: messages.map(m => ({role: m.role, content: m.content, images: m.images || [], docs: m.docs || [], files: m.files || []}))
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let finished = false;
+
+                while (!finished) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+
+                    // buffer: una riga SSE può arrivare spezzata fra due chunk
+                    buffer += decoder.decode(value, {stream: true});
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const dataStr = line.slice(6).trim();
+                        if (dataStr === '[DONE]') { finished = true; responseCompleted=true; break; }
+                        try {
+                            const d = JSON.parse(dataStr);
+                            if (d.status) { showStatus(d.status); continue; }
+                            if (d.tool) {
+                                if (d.tool.kind === 'python' && !steps.some(s => s.id === d.tool.id)) d.tool.thoughtOffset = thoughtText.length;
+                                upsertStep(steps, d.tool);
+                                drawSteps(stepsEl, steps, d.tool.kind === 'python' && d.tool.state === 'done' ? d.tool.id : null);
+                                continue;
+                            }
+                            if (Array.isArray(d.sources)) { sources = d.sources; continue; }
+                            if (typeof d.content === 'string') {
+                                hideStatus();
+                                fullText += d.content;
+                                scheduleRender();
+                            }
+                        } catch (e) {}
+                    }
+                }
+
+                flushRender();   // ultimo chunk: ridisegno immediato, poi si chiude il ragionamento
+
+                // pensiero rimasto aperto (es. limite di token raggiunto)
+                if (thinking) finishThinking();
+
+                // Il codice e il risultato Python sono consultabili solo nel pannello di ragionamento.
+                if (steps.some(s => s.kind === 'python' && (typeof s.code === 'string' || typeof s.output === 'string'))) {
+                    statusEl.style.display = 'inline-flex';
+                    statusEl.className = 'thought-status clickable';
+                    if (!thoughtText) statusEl.textContent = 'Dettagli del calcolo';
+                    statusEl.onclick = () => openDrawer(thoughtText, steps);
+                }
+
+                // nella cronologia salviamo solo la risposta, non il ragionamento
+                answerOnly = splitThink(cleanTokens(fullText)).answer;
+                renderAssistantAnswer(answerBox,answerOnly,lastUserPrompt,'ready');
+                linkCitations(answerBox,sources);
+                const msg = {"role": "assistant", "content": answerOnly, thought: thoughtText, secs: thinkSecs};
+                if (steps.length) msg.steps = steps.map(s => ({kind: s.kind, label: s.label, state: s.state === 'running' ? 'error' : s.state, ...(Number.isFinite(s.thoughtOffset) ? {thoughtOffset: s.thoughtOffset} : {}), ...(typeof s.code === 'string' ? {code: s.code} : {}), ...(typeof s.output === 'string' ? {output: s.output} : {})}));
+                if (sources.length) msg.sources = sources;
+                messages.push(msg);
+                if (answerOnly) addAssistantActions(asstRow, answerOnly);
+                drawSources(sourcesEl, sources, answerOnly);
+
+            } catch (err) {
+                cancelRender();
+                if (timerInterval) clearInterval(timerInterval);
+                if(!fullText)answerBox.innerText="Errore di connessione al server.";
+            } finally {
+                cancelRender();   // nessun render in coda deve sovrascrivere lo stato finale
+                if(!responseCompleted&&fullText)renderAssistantAnswer(answerBox,splitThink(cleanTokens(fullText)).answer,lastUserPrompt,'error');
+                for (const s of steps) if (s.state === 'running') s.state = 'error';   // interrotto a metà
+                drawSteps(stepsEl, steps);
+                answerBox.classList.remove('streaming');
+                setBusy(false);
+                saveCurrent();
+            }
+        }
+
+        function appendUserMessage(text, images = [], docs = [], idx = messages.length - 1, files = []) {
+            document.getElementById('welcome').style.display = 'none';
+            const container = document.getElementById('chat-container');
+            const row = document.createElement('div');
+            row.className = 'message-row';
+            row.dataset.i = idx;   // posizione del messaggio in `messages` (serve per modificarlo)
+            row._text = text;
+            const msg = document.createElement('div');
+            msg.className = 'message user';
+            if (images.length) {
+                const gallery = document.createElement('div');
+                gallery.className = 'msg-images';
+                for (const id of images) {
+                    const a = document.createElement('a');
+                    a.href = '/api/images/' + id; a.target = '_blank';
+                    const img = document.createElement('img');
+                    img.src = '/api/images/' + id; img.loading = 'lazy'; img.alt = 'Immagine allegata';
+                    a.appendChild(img); gallery.appendChild(a);
+                }
+                msg.appendChild(gallery);
+            }
+            if (docs.length) {
+                const wrap = document.createElement('div');
+                wrap.className = 'msg-docs';
+                for (const d of docs) {
+                    const a = document.createElement('a');
+                    a.className = 'doc-chip'; a.href = '/api/pdfs/' + d.id; a.target = '_blank';
+                    a.innerHTML = PDF_ICON;
+                    const nm = document.createElement('span');
+                    nm.className = 'nm'; nm.textContent = d.name; a.appendChild(nm);
+                    if (d.pages) { const sm = document.createElement('small'); sm.textContent = d.pages + ' pag.'; a.appendChild(sm); }
+                    wrap.appendChild(a);
+                }
+                msg.appendChild(wrap);
+            }
+            if (files.length) {
+                const wrap = document.createElement('div');
+                wrap.className = 'msg-docs';
+                for (const f of files) {
+                    const a = document.createElement('a');
+                    a.className = 'doc-chip'; a.href = '/api/files/' + encodeURIComponent(f.id); a.target = '_blank';
+                    a.innerHTML = PDF_ICON;
+                    const nm = document.createElement('span');
+                    nm.className = 'nm'; nm.textContent = f.name || 'File'; a.appendChild(nm);
+                    wrap.appendChild(a);
+                }
+                msg.appendChild(wrap);
+            }
+            if (text) {
+                const c = document.createElement('div');
+                c.className = 'content';
+                c.textContent = text;
+                msg.appendChild(c);
+            }
+            addUserActions(row, msg, text);
+            row.appendChild(msg);
+            container.appendChild(row);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function createAssistantMsgStructure() {
+            const container = document.getElementById('chat-container');
+            const row = document.createElement('div');
+            row.className = 'message-row';
+
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message assistant';
+
+            const statusEl = document.createElement('div');
+            statusEl.className = 'thought-status';
+            statusEl.style.display = 'none';
+
+            const answerBox = document.createElement('div');
+            answerBox.className = 'content streaming';
+
+            const stepsEl = document.createElement('div');       // passi di ricerca web
+            stepsEl.className = 'web-steps';
+            stepsEl.style.display = 'none';
+
+            const sourcesEl = document.createElement('div');     // fonti consultate
+            sourcesEl.className = 'sources';
+            sourcesEl.style.display = 'none';
+
+            msgDiv.append(statusEl, stepsEl, answerBox, sourcesEl);
+            row.appendChild(msgDiv);
+            container.appendChild(row);
+
+            return { row, statusEl, stepsEl, answerBox, sourcesEl };
+        }
+
+        // ===== Cronologia chat (salvata su disco dal server, cartella ./chats) =====
+        const SYSTEM = messages[0];
+        let currentId = null;
+        let chatIndex = [];
+
+        async function api(path, options) {
+            const r = await fetch(path, options);
+            if (!r.ok) {
+                let detail = '';
+                try { detail = (await r.json()).detail || ''; } catch (e) {}
+                throw new Error(detail || 'HTTP ' + r.status);
+            }
+            return r.json();
+        }
+
+        function putChat(chat) {
+            return api('/api/chats/' + chat.id, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(chat)
+            });
+        }
+
+        async function refreshIndex() {
+            try { chatIndex = await api('/api/chats'); } catch (e) { console.warn('Elenco chat non disponibile', e); }
+            renderList();
+        }
+
+        function saveCurrent() {
+            if (messages.length < 2) return;
+            if (!currentId) currentId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            const first = messages.find(m => m.role === 'user');
+            const known = chatIndex.find(c => c.id === currentId);
+            const chat = {
+                id: currentId,
+                title: known ? known.title : (first.content || (first.docs && first.docs.length ? first.docs[0].name : (first.files && first.files.length ? first.files[0].name : (first.images && first.images.length ? 'Immagine' : 'Chat')))).replace(/\s+/g, ' ').slice(0, 40),
+                updated: Date.now(),
+                messages: messages.slice(1)
+            };
+            chatIndex = [{id: chat.id, title: chat.title, updated: chat.updated}, ...chatIndex.filter(c => c.id !== chat.id)];
+            renderList();
+            putChat(chat).catch(e => console.warn('Salvataggio non riuscito', e));
+        }
+
+        function renderList() {
+            const list = document.getElementById('chat-list');
+            list.innerHTML = '';
+            if (!chatIndex.length) { list.innerHTML = '<div class="chat-empty">Nessuna chat salvata</div>'; return; }
+            for (const c of chatIndex) {
+                const item = document.createElement('div');
+                item.className = 'chat-item' + (c.id === currentId ? ' active' : '');
+                const title = document.createElement('span');
+                title.textContent = c.title;
+                const del = document.createElement('button');
+                del.className = 'del'; del.textContent = '✕'; del.title = 'Elimina';
+                del.onclick = (e) => { e.stopPropagation(); deleteChat(c.id); };
+                item.onclick = () => openChat(c.id);
+                item.append(title, del);
+                list.appendChild(item);
+            }
+        }
+
+        async function openChat(id) {
+            closeSidebar();
+            if (document.getElementById('send').disabled || id === currentId) return;
+            let chat;
+            try { chat = await api('/api/chats/' + id); } catch (e) { console.warn('Chat non caricata', e); return; }
+            messages = [SYSTEM, ...chat.messages];
+            clearPending();
+            currentId = id;
+            const container = document.getElementById('chat-container');
+            container.innerHTML = '';
+            closeDrawer();
+            closeFileDrawer();
+            document.getElementById('welcome').style.display = 'none';
+            for (const [k, m] of chat.messages.entries()) {
+                if (m.role === 'user') { appendUserMessage(m.content, m.images || [], m.docs || [], k + 1, m.files || []); continue; }
+                const { row, statusEl, stepsEl, answerBox, sourcesEl } = createAssistantMsgStructure();
+                answerBox.classList.remove('streaming');
+                const hasPythonDetails = Array.isArray(m.steps) && m.steps.some(s => s.kind === 'python' && (typeof s.code === 'string' || typeof s.output === 'string'));
+                if (m.thought || hasPythonDetails) {
+                    statusEl.style.display = 'inline-flex';
+                    statusEl.className = 'thought-status clickable';
+                    statusEl.textContent = m.thought ? `Ragionato per ${formatSeconds(m.secs || 0)}` : 'Dettagli del calcolo';
+                    statusEl.onclick = () => openDrawer(m.thought || '', m.steps || []);
+                }
+                if (Array.isArray(m.steps) && m.steps.length) drawSteps(stepsEl, m.steps);
+                const userPrompt = chat.messages.slice(0, k).reverse().find(x => x.role === 'user')?.content || '';
+                renderAssistantAnswer(answerBox,m.content,userPrompt,'ready');
+                linkCitations(answerBox, m.sources);
+                drawSources(sourcesEl, m.sources, m.content);
+                if (m.content) addAssistantActions(row, m.content);
+            }
+            hljs.highlightAll();
+            decorateCode(container);
+            container.scrollTop = container.scrollHeight;
+            renderList();
+        }
+
+        async function deleteChat(id) {
+            try { await api('/api/chats/' + id, {method: 'DELETE'}); } catch (e) { console.warn('Eliminazione non riuscita', e); return; }
+            chatIndex = chatIndex.filter(c => c.id !== id);
+            if (id === currentId && !document.getElementById('send').disabled) resetChat();
+            renderList();
+        }
+
+        function openSidebar() {
+            document.getElementById('sidebar').classList.add('open');
+            document.getElementById('sidebar-overlay').classList.add('open');
+        }
+
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebar-overlay').classList.remove('open');
+        }
+
+        async function initCapabilities() {
+            let caps = null;
+            try {
+                caps = await api('/api/capabilities');
+                visionEnabled = !!caps.vision; pdfEnabled = !!caps.pdf; webAvailable = !!caps.web;
+            } catch (e) { visionEnabled = false; pdfEnabled = false; webAvailable = false; }
+            document.getElementById('attach-btn').style.display = (visionEnabled || pdfEnabled || !!caps?.code_files) ? 'flex' : 'none';
+
+            // ricerca web: attiva di default; se l'utente la spegne, il browser lo ricorda
+            let saved = null;
+            try { saved = localStorage.getItem('gideon_web'); } catch (e) {}
+            webOn = saved === null ? true : saved === '1';
+            const webBtn = document.getElementById('web-btn');
+            if (!caps || (!caps.web && caps.web_backend)) {
+                webBtn.style.display = 'none';   // server non raggiungibile, oppure ricerca disattivata di proposito (ENABLE_WEB=0)
+            } else {
+                webBtn.style.display = 'flex';
+                webBtn.disabled = !webAvailable; // nessun motore disponibile: il pulsante resta visibile ma spento, con la spiegazione
+            }
+            syncWebBtn();
+        }
+
+        refreshIndex();
+        initCapabilities();
+    </script>
+</body>
+</html>

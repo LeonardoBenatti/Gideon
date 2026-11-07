@@ -1,0 +1,62 @@
+# ==============================================================================
+# Gideon (Repository Pubblica) - .gitignore
+# ==============================================================================
+
+# File di configurazione locale, chiavi e segreti privati
+.env
+.env.*
+*.env
+!.env.example
+.env.local
+*.key
+*.pem
+*.token
+*secret*
+*credential*
+
+# Dati utente privati e cronologia conversazioni
+**/chats/
+chats/
+*.chat
+*.history
+
+# Modelli e pesi di grandi dimensioni (locali)
+shared_models/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+
+# Ambienti virtuali Python
+shared_venv/
+.venv/
+venv/
+env/
+ENV/
+
+# Cache Python e build
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Log, file temporanei e sandbox
+*.log
+**/llama-server.log
+*.tmp
+*.temp
+scratch/
+
+# File di sistema e configurazioni IDE
+.vscode/
+.idea/
+.agents/
+Thumbs.db
+Desktop.ini
+.DS_Store
+
